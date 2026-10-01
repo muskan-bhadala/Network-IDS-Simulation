@@ -1,0 +1,54 @@
+{
+  "logistic_regression": {
+    "accuracy": 0.9456,
+    "precision": 1.0,
+    "recall": 0.8172,
+    "f1": 0.8994,
+    "confusion_matrix": {
+      "TN": 878,
+      "FP": 0,
+      "FN": 68,
+      "TP": 304
+    }
+  },
+  "random_forest": {
+    "accuracy": 0.9856,
+    "precision": 0.9836,
+    "recall": 0.9677,
+    "f1": 0.9756,
+    "confusion_matrix": {
+      "TN": 872,
+      "FP": 6,
+      "FN": 12,
+      "TP": 360
+    }
+  },
+  "isolation_forest": {
+    "accuracy": 0.8632,
+    "precision": 0.7469,
+    "recall": 0.8172,
+    "f1": 0.7805,
+    "confusion_matrix": {
+      "TN": 775,
+      "FP": 103,
+      "FN": 68,
+      "TP": 304
+    }
+  },
+  "_info": {
+    "train_rows": 3750,
+    "test_rows": 1250,
+    "features": [
+      "packet_count",
+      "byte_count",
+      "duration",
+      "bytes_per_second",
+      "packets_per_second",
+      "connection_count",
+      "failed_connection_count",
+      "syn_count",
+      "rst_count",
+      "average_packet_size"
+    ]
+  }
+}

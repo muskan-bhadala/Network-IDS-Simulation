@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Network IDS - SOC Dashboard</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--tx:#e6edf3;--mut:#8b949e;--acc:#58a6ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif}
+header{padding:14px 20px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+h1{font-size:18px;margin:0}main{padding:16px 20px;max-width:1400px;margin:auto}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.card,.panel{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px}
+.card .v{font-size:26px;font-weight:700}.card .l{color:var(--mut);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:12px;margin-bottom:16px}
+.panel h3{margin:0 0 8px;font-size:13px;color:var(--mut);font-weight:600}
+.bar{display:flex;align-items:center;gap:6px;margin:3px 0;font-size:12px}.bar .n{width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .b{height:12px;background:var(--acc);border-radius:3px;min-width:2px}.bar .c{color:var(--mut)}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--bd)}
+th{color:var(--mut)}tbody tr{cursor:pointer}tbody tr:hover{background:#1f2630}
+.sev{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#000}
+.INFO{background:#8b949e}.LOW{background:#3fb950}.MEDIUM{background:#d29922}.HIGH{background:#f0883e}.CRITICAL{background:#f85149}
+select,button,textarea,input{background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;font:inherit}
+button{cursor:pointer}button:hover{border-color:var(--acc)}.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+#modal{display:none;position:fixed;inset:0;background:#000a;z-index:9}#box{background:var(--card);max-width:760px;margin:30px auto;padding:18px;border-radius:10px;max-height:88vh;overflow:auto;border:1px solid var(--bd)}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:4px 10px;font-size:13px}.kv b{color:var(--mut);font-weight:500}
+svg{width:100%;height:150px}.mut{color:var(--mut)}.live{color:#3fb950}
+</style></head><body>
+<header><h1>&#128737; Network IDS Simulation &mdash; SOC Dashboard</h1>
+<div class="row" style="margin:0"><span class="live" id="live">&#9679; live (polling 3s)</span>
+<select id="scn"><option>NORMAL_WEB</option><option>NORMAL_DNS</option><option>HIGH_CONNECTION_RATE</option><option>REPEATED_FAILED_CONNECTIONS</option><option>MULTI_PORT_PROBING_PATTERN</option><option>SYN_HEAVY_PATTERN</option><option>UNUSUAL_PORT_ACTIVITY</option><option>HIGH_TRAFFIC_VOLUME</option></select>
+<button onclick="inject()">Inject synthetic flow</button></div></header>
+<main>
+<div class="cards" id="cards"></div>
+<div class="grid">
+<div class="panel" style="grid-column:1/-1"><h3>Traffic over time (per minute) <select id="metric" onchange="refresh()"><option value="flows">flows</option><option value="packets">packets</option><option value="bytes">bytes</option><option value="failed">failed connections</option><option value="connections">connections</option></select></h3><svg id="line" viewBox="0 0 800 150" preserveAspectRatio="none"></svg></div>
+<div class="panel"><h3>Normal vs Suspicious</h3><div id="classes"></div></div>
+<div class="panel"><h3>Alerts by severity</h3><div id="sev"></div></div>
+<div class="panel"><h3>Top alert types</h3><div id="types"></div></div>
+<div class="panel"><h3>Protocol distribution</h3><div id="proto"></div></div>
+<div class="panel"><h3>Destination ports</h3><div id="ports"></div></div>
+<div class="panel"><h3>Top source IPs by alerts</h3><div id="srcs"></div></div>
+<div class="panel"><h3>Risk score distribution (bucket start)</h3><div id="risk"></div></div>
+</div>
+<div class="panel"><h3>Recent alerts</h3>
+<div class="row"><select id="fs"><option value="">Severity: all</option><option>INFO</option><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select>
+<select id="fp"><option value="">Protocol: all</option><option>TCP</option><option>UDP</option><option>ICMP</option></select>
+<select id="fst"><option value="">Status: all</option><option>NEW</option><option>INVESTIGATING</option><option>RESOLVED</option><option>FALSE_POSITIVE</option></select>
+<select id="ft"><option value="">Alert type: all</option><option>High Connection Rate</option><option>Repeated Failed Connections</option><option>Many Destination Ports</option><option>SYN-Heavy Behavior</option><option>Unusual Service Port</option><option>Abnormally High Traffic Volume</option><option>Anomalous Traffic Pattern</option></select>
+<select id="fm"><option value="">Time: all</option><option value="15">last 15 min</option><option value="60">last hour</option><option value="1440">last 24h</option></select></div>
+<div style="overflow:auto"><table><thead><tr><th>Time</th><th>Source IP</th><th>Destination IP</th><th>Proto</th><th>Alert</th><th>Severity</th><th>Risk</th><th>Status</th></tr></thead><tbody id="alerts"></tbody></table></div></div>
+</main>
+<div id="modal" onclick="if(event.target===this)closeM()"><div id="box"></div></div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const j=async(u,o)=>{const r=await fetch(u,o);return r.json()};
+const send=(m,u,b)=>j(u,{method:m,headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
+function bars(el,rows,cls){const m=Math.max(1,...rows.map(r=>r.value));
+ $(el).innerHTML=rows.length?rows.map(r=>`<div class="bar"><span class="n" title="${esc(r.label)}">${esc(r.label)}</span><span class="b ${cls?esc(r.label):''}" style="width:${r.value/m*60}%"></span><span class="c">${r.value}</span></div>`).join(""):'<span class="mut">no data</span>'}
+function line(rows,key){const v=rows.map(r=>r[key]||0),m=Math.max(1,...v),n=v.length;
+ if(n<2){$("line").innerHTML="";return}
+ const pts=v.map((y,i)=>`${i/(n-1)*800},${140-y/m*125}`).join(" ");
+ $("line").innerHTML=`<polyline fill="none" stroke="#58a6ff" stroke-width="2" points="${pts}"/><text x="4" y="12" fill="#8b949e" font-size="11">max ${Math.round(m)}</text>`}
+async function refresh(){
+ const [s,t,a]=await Promise.all([j("/api/dashboard/stats"),j("/api/dashboard/traffic"),j("/api/dashboard/alerts")]);
+ const C=[["Total Network Flows",s.total_flows],["Normal Traffic",s.normal_flows],["Suspicious Traffic",s.suspicious_flows],["Open Alerts",s.open_alerts],["Critical Alerts",s.critical_alerts],["Average Risk Score",s.avg_risk]];
+ $("cards").innerHTML=C.map(c=>`<div class="card"><div class="v">${esc(c[1])}</div><div class="l">${c[0]}</div></div>`).join("");
+ line(t.series,$("metric").value);bars("classes",t.classes);bars("proto",t.protocols);bars("ports",t.ports);bars("risk",t.risk_hist);
+ bars("sev",a.severity,1);bars("types",a.types);bars("srcs",a.sources);loadAlerts()}
+async function loadAlerts(){
+ const q=new URLSearchParams({severity:$("fs").value,protocol:$("fp").value,status:$("fst").value,alert_type:$("ft").value,minutes:$("fm").value,limit:50});
+ [...q.keys()].forEach(k=>{if(!q.get(k))q.delete(k)});
+ const rows=await j("/api/alerts?"+q);
+ $("alerts").innerHTML=rows.map(a=>`<tr onclick="openAlert('${esc(a.alert_id)}')"><td>${esc(a.created_at.replace("T"," "))}</td><td>${esc(a.source_ip)}</td><td>${esc(a.destination_ip)}</td><td>${esc(a.protocol)}</td><td>${esc(a.alert_type)}</td><td><span class="sev ${esc(a.severity)}">${esc(a.severity)}</span></td><td>${a.risk_score}</td><td>${esc(a.status)}</td></tr>`).join("")||'<tr><td colspan="8" class="mut">No alerts yet - click "Inject synthetic flow" or start the simulator.</td></tr>'}
+["fs","fp","fst","ft","fm"].forEach(i=>$(i).onchange=loadAlerts);
+async function inject(){const r=await send("POST","/api/simulate",{scenario:$("scn").value});
+ alert(`${r.scenario}\nClassification: ${r.classification}\nRisk: ${r.risk_score}\nRules: ${r.rules_triggered.join(", ")||"none"}\nAlert: ${r.alert_id||"none"}`);refresh()}
+async function openAlert(id){const a=await j("/api/alerts/"+id),d=a.details||{},s=d.stats||{};
+ $("box").innerHTML=`<div class="row"><h2 style="margin:0">${esc(a.alert_id)} &mdash; ${esc(a.alert_type)}</h2><button onclick="closeM()" style="margin-left:auto">Close</button></div>
+ <div class="kv"><b>Severity</b><span class="sev ${esc(a.severity)}" style="width:fit-content">${esc(a.severity)}</span><b>Final risk</b><span>${a.risk_score}/100</span>
+ <b>Timestamp</b><span>${esc(a.created_at)}</span><b>Source</b><span>${esc(a.source_ip)}:${esc(a.source_port)}</span><b>Destination</b><span>${esc(a.destination_ip)}:${esc(a.destination_port)}</span>
+ <b>Protocol</b><span>${esc(a.protocol)}</span><b>Matched rule</b><span>${esc(a.rule_id)}</span><b>Anomaly score</b><span>${a.anomaly_score}</span><b>ML score</b><span>${a.ml_score??"disabled"}</span>
+ <b>Reason</b><span>${esc(d.reason)}</span><b>Status</b><span>${esc(a.status)}</span></div>
+ <h4>Traffic statistics</h4><div class="kv">${Object.entries(s).map(([k,v])=>`<b>${esc(k)}</b><span>${typeof v=="number"?+v.toFixed(2):esc(v)}</span>`).join("")}</div>
+ <h4>Recommended investigation steps</h4><ul>${(d.recommended_steps||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+ <p class="mut">A rule match means "investigate" - it does not prove malicious activity.</p>
+ <h4>Update status</h4><div class="row">${["INVESTIGATING","RESOLVED","FALSE_POSITIVE"].map(x=>`<button onclick="setSt('${esc(a.alert_id)}','${x}')">${x}</button>`).join("")}</div>
+ <h4>Analyst notes &amp; timeline</h4><div class="row"><input id="note" style="flex:1" placeholder="Add analyst note..."><button onclick="addNote('${esc(a.alert_id)}')">Add note</button></div>
+ <table><tbody>${a.notes.map(n=>`<tr><td>${esc(n.created_at.replace("T"," "))}</td><td>${esc(n.kind)}</td><td>${esc(n.note)}</td></tr>`).join("")||'<tr><td class="mut">No notes yet</td></tr>'}</tbody></table>`;
+ $("modal").style.display="block"}
+const closeM=()=>{$("modal").style.display="none";refresh()};
+async function setSt(id,st){const note=prompt("Optional note for this status change:")||"";await send("PUT",`/api/alerts/${id}/status`,{status:st,note});openAlert(id)}
+async function addNote(id){const n=$("note").value.trim();if(!n)return;await send("POST",`/api/alerts/${id}/notes`,{note:n});openAlert(id)}
+refresh();setInterval(()=>{if($("modal").style.display!=="block")refresh().catch(()=>$("live").textContent="● backend offline")},3000);
+</script></body></html>
